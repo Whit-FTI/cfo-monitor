@@ -369,16 +369,17 @@ Provide comprehensive, well-researched information in plain text format."""
             return text_file
     
     def send_email(self):
-        """Send email digest with all findings"""
-        if not self.results:
-            print("No CFO changes found today - no email sent")
-            return
-        
+        """Send email digest with all findings (or no-changes notification)"""
         print(f"\nPreparing email with {len(self.results)} findings...")
         
         # Create email message
+        if self.results:
+            subject = f'CFO Changes Alert - {datetime.now().strftime("%B %d, %Y")} ({len(self.results)} findings)'
+        else:
+            subject = f'CFO Changes Alert - {datetime.now().strftime("%B %d, %Y")} (No changes)'
+        
         msg = MIMEMultipart()
-        msg['Subject'] = f'CFO Changes Alert - {datetime.now().strftime("%B %d, %Y")} ({len(self.results)} findings)'
+        msg['Subject'] = subject
         msg['From'] = self.email_from
         msg['To'] = self.email_to
         
@@ -398,6 +399,27 @@ Provide comprehensive, well-researched information in plain text format."""
     
     def _create_email_body(self):
         """Create concise email body with summary"""
+        
+        # Handle case where no results found
+        if not self.results:
+            return f"""
+            <html>
+            <head>
+                <style>
+                    body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                    .summary {{ background-color: #ecf0f1; padding: 20px; margin: 20px 0; border-radius: 5px; }}
+                    .highlight {{ color: #2c3e50; font-weight: bold; }}
+                </style>
+            </head>
+            <body>
+                <div class="summary">
+                    <h2>CFO Changes Summary - {datetime.now().strftime("%B %d, %Y")}</h2>
+                    <p>Our automated monitoring system found <span class="highlight">no CFO-related changes</span> in the past 24 hours. We searched both SEC EDGAR filings and major business news sources.</p>
+                    <p>No CFO movement today.</p>
+                </div>
+            </body>
+            </html>
+            """
         
         num_companies = len(set(r['company'] for r in self.results))
         
