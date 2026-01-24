@@ -163,41 +163,9 @@ class CFOMonitor:
         return None
     
     def generate_tear_sheets(self):
-        """Generate tear sheets for companies and individuals using Claude API"""
-        if not self.anthropic_api_key:
-            print("Skipping tear sheet generation - no API key provided")
-            return
-        
-        print(f"\nGenerating tear sheets for {len(self.results)} findings...")
-        
-        for idx, result in enumerate(self.results):
-            print(f"Processing {idx + 1}/{len(self.results)}: {result['company']}")
-            
-            # Generate company tear sheet
-            company_doc = self._generate_company_tear_sheet(result)
-            if company_doc:
-                self.tear_sheets.append({
-                    'type': 'company',
-                    'company': result['company'],
-                    'document': company_doc,
-                    'filename': f"{self._sanitize_filename(result['company'])}_Company_TearSheet.docx"
-                })
-            
-            # Generate individual tear sheet if we have a name
-            if result.get('individual'):
-                individual_doc = self._generate_individual_tear_sheet(result)
-                if individual_doc:
-                    self.tear_sheets.append({
-                        'type': 'individual',
-                        'individual': result['individual'],
-                        'company': result['company'],
-                        'document': individual_doc,
-                        'filename': f"{self._sanitize_filename(result['individual'])}_Individual_TearSheet.docx"
-                    })
-            
-            time.sleep(2)  # Rate limiting for API calls
-        
-        print(f"Generated {len(self.tear_sheets)} tear sheet documents")
+        """Tear sheet generation removed per user request"""
+        print("Tear sheet generation disabled")
+        return
     
     def _generate_company_tear_sheet(self, result):
         """Generate company tear sheet using Claude API"""
@@ -401,54 +369,54 @@ Provide comprehensive, well-researched information in plain text format."""
             return text_file
     
     def send_email(self):
-        """Send email digest with all findings and tear sheet attachments"""
+        """Send email digest with all findings"""
         if not self.results:
             print("No CFO changes found today - no email sent")
             return
         
-        print(f"\nPreparing email with {len(self.results)} findings and {len(self.tear_sheets)} attachments...")
+        print(f"\nPreparing email with {len(self.results)} findings...")
         
-        # Create multipart message
+        # Create email message
         msg = MIMEMultipart()
         msg['Subject'] = f'CFO Changes Alert - {datetime.now().strftime("%B %d, %Y")} ({len(self.results)} findings)'
         msg['From'] = self.email_from
         msg['To'] = self.email_to
         
-        # Create email body with 4-sentence summary
+        # Create email body
         body = self._create_email_body()
         msg.attach(MIMEText(body, 'html'))
-        
-        # Attach tear sheets as Word documents
-        for tear_sheet in self.tear_sheets:
-            try:
-                docx_file = self._create_word_document(tear_sheet['document'])
-                
-                part = MIMEBase('application', 'vnd.openxmlformats-officedocument.wordprocessingml.document')
-                part.set_payload(docx_file.read())
-                encoders.encode_base64(part)
-                part.add_header('Content-Disposition', f'attachment; filename="{tear_sheet["filename"]}"')
-                msg.attach(part)
-                
-            except Exception as e:
-                print(f"Error attaching {tear_sheet['filename']}: {e}")
         
         try:
             with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
                 server.login(self.email_from, self.email_password)
                 server.send_message(msg)
             
-            print("✓ Email sent successfully with attachments!")
+            print("✓ Email sent successfully!")
             
         except Exception as e:
             print(f"Error sending email: {e}")
     
     def _create_email_body(self):
-        """Create concise 4-sentence email body with summary"""
+        """Create concise email body with summary"""
         
         num_companies = len(set(r['company'] for r in self.results))
-        num_individuals = len([r for r in self.results if r.get('individual')])
-        num_sec = len([r for r in self.results if r['source'] == 'SEC EDGAR'])
-        num_news = len([r for r in self.results if r['source'].startswith('News')])
+        
+        # Determine most relevant finding (prioritize SEC filings, then news)
+        most_relevant = None
+        for result in self.results:
+            if result['source'] == 'SEC EDGAR':
+                most_relevant = result
+                break
+        if not most_relevant and self.results:
+            most_relevant = self.results[0]
+        
+        # Create highlight blurb for most relevant change
+        highlight_blurb = ""
+        if most_relevant:
+            individual = most_relevant.get('individual', 'a new CFO')
+            company = most_relevant['company']
+            status = self._determine_cfo_status(most_relevant['title'])
+            highlight_blurb = f" Most notably, {company} has {status} {individual}."
         
         summary = f"""
         <html>
@@ -457,31 +425,26 @@ Provide comprehensive, well-researched information in plain text format."""
                 body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
                 .summary {{ background-color: #ecf0f1; padding: 20px; margin: 20px 0; border-radius: 5px; }}
                 .highlight {{ color: #2c3e50; font-weight: bold; }}
-                ul {{ margin: 10px 0; }}
-                li {{ margin: 5px 0; }}
+                ul {{ margin: 10px 0; padding-left: 0; list-style-type: none; }}
+                li {{ margin: 10px 0; padding-left: 0; }}
             </style>
         </head>
         <body>
             <div class="summary">
                 <h2>CFO Changes Summary - {datetime.now().strftime("%B %d, %Y")}</h2>
-                <p>Our automated monitoring system has identified <span class="highlight">{len(self.results)} CFO-related changes</span> across <span class="highlight">{num_companies} companies</span> in the past 24 hours. We found {num_sec} official SEC filings and {num_news} news articles reporting these executive movements. Detailed company and individual tear sheets are attached as Word documents for your review and analysis. Please see the attachments for comprehensive research on each identified change.</p>
+                <p>Our automated monitoring system has identified <span class="highlight">{len(self.results)} CFO-related change{"s" if len(self.results) != 1 else ""}</span> across <span class="highlight">{num_companies} compan{"ies" if num_companies != 1 else "y"}</span> in the past 24 hours.{highlight_blurb}</p>
                 
-                <h3>Quick Stats:</h3>
-                <ul>
-                    <li><strong>Total Findings:</strong> {len(self.results)}</li>
-                    <li><strong>Companies Affected:</strong> {num_companies}</li>
-                    <li><strong>SEC Filings:</strong> {num_sec}</li>
-                    <li><strong>News Articles:</strong> {num_news}</li>
-                    <li><strong>Tear Sheets Generated:</strong> {len(self.tear_sheets)}</li>
-                </ul>
-                
-                <h3>Identified Changes:</h3>
+                <h3>Identified CFO Changes:</h3>
                 <ul>
         """
         
         for result in self.results:
-            individual = result.get('individual', 'Individual name not identified')
-            summary += f"<li><strong>{result['company']}</strong> - {individual}</li>"
+            company = result['company']
+            individual = result.get('individual', 'an executive')
+            status = self._determine_cfo_status(result['title'])
+            url = result['url']
+            
+            summary += f"<li>• <strong>{company}</strong> - {company} has {status} {individual}. <a href='{url}'>Source</a></li>"
         
         summary += """
                 </ul>
@@ -492,18 +455,27 @@ Provide comprehensive, well-researched information in plain text format."""
         
         return summary
     
+    def _determine_cfo_status(self, title):
+        """Determine if CFO was hired, fired, or made interim based on title text"""
+        title_lower = title.lower()
+        
+        if any(word in title_lower for word in ['interim', 'acting']):
+            return "appointed an interim"
+        elif any(word in title_lower for word in ['depart', 'resign', 'step down', 'exit', 'leave']):
+            return "announced the departure of"
+        elif any(word in title_lower for word in ['appoint', 'hire', 'name', 'join', 'welcome']):
+            return "hired"
+        else:
+            return "announced a change regarding"
+    
     def run(self):
         """Main execution method"""
         print("=" * 70)
-        print("CFO Change Monitor - Enhanced Edition with Tear Sheets")
+        print("CFO Change Monitor - Daily Scan")
         print("=" * 70)
         
         self.search_sec_filings()
         self.search_news()
-        
-        if self.results:
-            self.generate_tear_sheets()
-        
         self.send_email()
         
         print("=" * 70)
